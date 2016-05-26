@@ -6,6 +6,7 @@ var _ = require('lodash-compat');
 var expect = require('expect');
 var petstoreRaw = require('./spec/v2/petstore.json');
 var SwaggerClient = require('..');
+var auth = require('../lib/auth');
 
 /* jshint ignore:start */
 var mock = require('./mock');
@@ -624,7 +625,6 @@ describe('SwaggerClient', function () {
   });
 
   it('uses a custom http client implementation', function (done) {
-
     var spec = {
       paths: {
         '/foo': {
@@ -681,6 +681,50 @@ describe('SwaggerClient', function () {
         expect(data.status).toBe(200);
         done();
       });
+    }).catch(function(exception) {
+      done(exception);
+    });
+  });
+
+  it('tests issue 743', function(done) {
+    var spec = {
+      paths: {
+        '/foo': {
+          get: {
+            tags: ['hi'],
+            operationId: 'there',
+            parameters: [
+              {
+                in: 'query',
+                name: 'values',
+                type: 'array',
+                items: {
+                  type: 'string',
+                  enum: ['a', 'b']
+                }
+              }
+            ],
+            responses: {
+              '200': {
+                description: 'ok'
+              }
+            }
+          }
+        }
+      }
+    };
+    new SwaggerClient({
+      url: 'http://localhost:8000/v2/swagger.json',
+      spec: spec,
+      usePromise: true
+    }).then(function(client) {
+      var allowable = client
+        .apis['hi']
+        .operations['there']
+        .parameters[0].allowableValues;
+       expect(allowable.values).toBeAn('object');
+       expect(allowable.values).toEqual(['a', 'b']);
+       done();
     }).catch(function(exception) {
       done(exception);
     });
@@ -760,7 +804,6 @@ describe('SwaggerClient', function () {
       }
     };
 
-
     new SwaggerClient({
       url: 'http://localhost:8000/v2/swagger.json',
       spec: spec,
@@ -769,6 +812,196 @@ describe('SwaggerClient', function () {
       expect(client.apisArray[0].name).toEqual('Most important resources');
       expect(client.apisArray[1].name).toEqual('Not important resources');
       expect(client.apisArray[2].name).toEqual('Least important resources');
+      done();
+    }).catch(function(exception) {
+      done(exception);
+    });
+  });
+
+  it('applies auth on a per-request basis', function(done) {
+    var spec = {
+      paths: {
+        '/foo': {
+          get: {
+            tags: ['hi'],
+            operationId: 'there',
+            security: {
+              authMe: []
+            },
+            parameters: [
+              {
+                in: 'query',
+                name: 'name',
+                type: 'string'
+              }
+            ],
+            responses: {
+              '200': {
+                description: 'ok'
+              }
+            }
+          }
+        }
+      }
+    };
+    new SwaggerClient({
+      url: 'http://localhost:8000/v2/swagger.json',
+      spec: spec,
+      usePromise: true
+    }).then(function(client) {
+      var mock = client.hi.there(
+          {
+            name: 'bob'
+          },
+          {
+            clientAuthorizations: {
+              authMe: new auth.PasswordAuthorization('foo', 'bar')
+            },
+            mock: true
+          });
+      expect(mock.headers.Authorization).toEqual('Basic Zm9vOmJhcg==');
+      done();
+    }).catch(function(exception) {
+      done(exception);
+    });
+  });
+
+  it('passes the correct content-type', function(done) {
+    var spec = {
+      paths: {
+        '/foo': {
+          post: {
+            tags: [
+                'test'
+            ],
+            operationId: 'formData',
+            consumes: ['multipart/form-data'],
+            parameters: [
+              {
+                in: 'formData',
+                name: 'name',
+                type: 'string',
+                required: false
+              }
+            ]
+          }
+        },
+        '/bar': {
+          post: {
+            tags: [
+              'test'
+            ],
+            operationId: 'encoded',
+            consumes: ['application/x-www-form-urlencoded'],
+            parameters: [
+              {
+                in: 'formData',
+                name: 'name',
+                type: 'string',
+                required: false
+              }
+            ]
+          }
+        }
+      }
+    };
+    new SwaggerClient({
+      url: 'http://localhost:8000/v2/swagger.json',
+      spec: spec,
+      usePromise: true
+    }).then(function(client) {
+      var mock = client.test.formData({
+        name: 'bob'
+      }, {
+        mock: true
+      });
+      expect(mock.headers).toBeAn('object');
+      expect(mock.headers['Content-Type']).toBe('multipart/form-data');
+
+      mock = client.test.encoded({
+        name: 'bob'
+      }, {
+        mock: true
+      });
+      expect(mock.headers).toBeAn('object');
+      expect(mock.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+
+      done();
+    }).catch(function(exception) {
+      done(exception);
+    });
+  });
+
+  it('passes formData in an array', function(done) {
+    var spec = {
+      paths: {
+        '/foo': {
+          post: {
+            tags: [
+              'test'
+            ],
+            operationId: 'encodedArray',
+            consumes: ['application/www-form-urlencoded'],
+            parameters: [
+              {
+                in: 'formData',
+                name: 'name',
+                type: 'array',
+                items: {
+                  type: 'string'
+                },
+                collectionFormat: 'csv',
+                required: false
+              }
+            ]
+          }
+        }
+      },
+      '/bar': {
+        post: {
+          tags: [
+            'test'
+          ],
+          operationId: 'formDataArray',
+          consumes: ['multipart/form-data'],
+          parameters: [
+            {
+              in: 'formData',
+              name: 'name',
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              collectionFormat: 'csv',
+              required: false
+            }
+          ]
+        }
+      }
+    };
+    new SwaggerClient({
+      url: 'http://localhost:8000/v2/swagger.json',
+      spec: spec,
+      usePromise: true
+    }).then(function(client) {
+      var mock = client.test.encodedArray({
+        name: ['bob', 'fred']
+      }, {
+        mock: true
+      });
+      expect(mock.body).toBe('name=bob,fred');
+      expect(mock.headers).toBeAn('object');
+      expect(mock.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+
+      //var mock = client.test.formDataArray({
+      //  name: ['bob', 'fred']
+      //}, {
+      //  mock: true
+      //});
+      //expect(mock.body).toBe('name=bob,fred');
+      //expect(mock.headers).toBeAn('object');
+      //expect(mock.headers['Content-Type']).toBe('multipart/form-data');
+
       done();
     }).catch(function(exception) {
       done(exception);

@@ -757,6 +757,41 @@ describe('swagger resolver', function () {
     });
   });
 
+
+  it('resolves ref arrays in responses', function(done) {
+    var api = new Resolver();
+    var spec = {
+      host: 'http://petstore.swagger.io',
+      basePath: '/v2',
+      paths: {
+        '/foo': {
+          get: {
+            responses: {
+              200: {
+                description: 'Array of refs',
+                schema: {
+                  type: 'array',
+                  items: {
+                    $ref: 'http://localhost:8000/v2/models.json#/Health'
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+
+    // should look in http://localhost:8000/foo/bar/swagger.yaml#/paths/health
+    api.resolve(spec, 'http://localhost:8000/swagger.json', function (spec, unresolved) {
+
+      expect(spec.paths['/foo'].get.responses['200'].schema.items['$ref']).toBe(undefined);
+      expect(spec.paths['/foo'].get.responses['200'].schema.items['x-resolved-from'][0]).toBe('http://localhost:8000/v2/models.json#/Health');
+
+      done();
+    });
+  });
+  
   it('does not make multiple calls for parameter refs #489', function(done) {
     var api = new Resolver();
     var spec = {
@@ -1382,4 +1417,76 @@ describe('swagger resolver', function () {
     });
   });
 
+  it('resolves referenced parameters', function(done) {
+    var api = new Resolver();
+    var spec = {
+      swagger:'2.0',
+      info:{},
+      host:'localhost:9000',
+      basePath:'/2.0',
+      paths:{
+        '/':{
+          post:{
+            responses:{
+              '200':{
+                description:'thanks'
+              }
+            },
+            parameters:[
+              {
+                '$ref': '#/parameters/inputParam'
+              }
+            ]
+          }
+        }
+      },
+      parameters: {
+        inputParam: {
+          in: 'body',
+          name: 'theBody',
+          schema: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string'
+              }
+            }
+          },
+          required: true
+        }
+      }
+    };
+    api.resolve(spec, function (spec, unresolved) {
+      var param = spec.paths['/'].post.parameters[0];
+      expect(param.name).toBe('theBody');
+      expect(param.schema['$ref']).toBeA('string');
+      expect(param.schema['$ref']).toEqual('#/definitions/inline_model');
+      expect(spec.definitions['inline_model']).toBeAn('object');
+      done();
+    });
+  });
+
+  it('support model refs', function(done) {
+    var api = new Resolver();
+    var spec = {
+      definitions: {
+        Foo: {
+          $ref: '#/definitions/Bar'
+        },
+        Bar: {
+          properties: {
+            name: {
+              type: 'string'
+            }
+          }
+        }
+      }
+    };
+    api.resolve(spec, function (spec, unresolved) {
+      expect(spec.definitions.Foo.properties).toBeAn('object');
+      expect(spec.definitions.Foo.properties.name).toBeAn('object');
+      expect(spec.definitions.Foo.properties.name.type).toBe('string');
+      done();
+    });
+  });
 });
