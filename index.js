@@ -48,7 +48,7 @@ SwaggerClient.getActualObjectWithEncryption = function (obj, toEncrypted : boole
         var t = obj[property];
 
         if (t.originalValue && t.encryptedValue) {
-          obj[property] = toEncrypted ? t.encryptedValue : obj;
+          obj[property] = toEncrypted ? t.encryptedValue : t.originalValue;
         }
         else {
           getActualObjectWithEncryption(obj[property], toEncrypted);
